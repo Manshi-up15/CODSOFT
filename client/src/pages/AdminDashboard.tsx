@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Navigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import type { Product } from "../context/AppContext";
-import { Plus, Edit, Trash2, DollarSign, ShoppingCart, Users, Percent, Package, ListFilter } from "lucide-react";
+import { Plus, Edit, Trash2, DollarSign, ShoppingCart, Users, Percent, Package, ListFilter, Upload } from "lucide-react";
 
 interface Stats {
   revenue: number;
@@ -66,6 +66,87 @@ const AdminDashboard: React.FC = () => {
 
   const [submittingProduct, setSubmittingProduct] = useState(false);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedImages, setSelectedImages] = useState<Array<{
+    type: "existing" | "new";
+    url?: string;
+    file?: File;
+    previewUrl?: string;
+  }>>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (e.dataTransfer.files) {
+      addFiles(Array.from(e.dataTransfer.files));
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    addFiles(Array.from(files));
+  };
+
+  const addFiles = (files: File[]) => {
+    const validFiles: Array<{ type: "new"; file: File; previewUrl: string }> = [];
+    let err = "";
+
+    const currentTotal = selectedImages.length;
+    if (currentTotal + files.length > 5) {
+      showToast("Maximum 5 images allowed.", "error");
+      return;
+    }
+
+    files.forEach(file => {
+      const allowedTypes = ["image/jpeg", "image/png", "image/jpg", "image/webp"];
+      if (!allowedTypes.includes(file.type)) {
+        err = "Unsupported file type. Please upload PNG, JPG, JPEG, or WEBP.";
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        err = "File too large. Maximum size allowed is 5MB.";
+        return;
+      }
+
+      validFiles.push({
+        type: "new",
+        file,
+        previewUrl: URL.createObjectURL(file)
+      });
+    });
+
+    if (err) {
+      showToast(err, "error");
+    }
+
+    if (validFiles.length > 0) {
+      setSelectedImages(prev => [...prev, ...validFiles]);
+    }
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setSelectedImages(prev => {
+      const copy = [...prev];
+      const removed = copy.splice(index, 1)[0];
+      if (removed.type === "new" && removed.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return copy;
+    });
+  };
+
   const fetchStats = async () => {
     try {
       const res = await fetch(`${backendUrl}/admin/stats`, {
@@ -127,6 +208,7 @@ const AdminDashboard: React.FC = () => {
       stock: "",
       isNewArrival: false
     });
+    setSelectedImages([]);
     setShowProductModal(true);
   };
 
@@ -139,34 +221,46 @@ const AdminDashboard: React.FC = () => {
       discountPrice: p.discountPrice ? p.discountPrice.toString() : "",
       category: p.category,
       brand: p.brand,
-      imageUrl: p.images[0] || "",
+      imageUrl: "",
       description: p.description,
       stock: p.stock.toString(),
       isNewArrival: p.isNewArrival || false
     });
+    const existing = (p.images || []).map(url => ({ type: "existing" as const, url }));
+    setSelectedImages(existing);
     setShowProductModal(true);
   };
 
   const handleProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prodForm.name || !prodForm.price || !prodForm.category || !prodForm.brand || !prodForm.imageUrl || !prodForm.description || !prodForm.stock) {
-      showToast("Please fill all required product fields.", "error");
+    if (!prodForm.name || !prodForm.price || !prodForm.category || !prodForm.brand || selectedImages.length === 0 || !prodForm.description || !prodForm.stock) {
+      showToast("Please fill all required product fields and upload at least one image.", "error");
       return;
     }
 
     setSubmittingProduct(true);
     try {
-      const payload = {
-        name: prodForm.name,
-        price: Number(prodForm.price),
-        discountPrice: prodForm.discountPrice ? Number(prodForm.discountPrice) : undefined,
-        category: prodForm.category,
-        brand: prodForm.brand,
-        images: [prodForm.imageUrl],
-        description: prodForm.description,
-        stock: Number(prodForm.stock),
-        isNewArrival: prodForm.isNewArrival
-      };
+      const formData = new FormData();
+      formData.append("name", prodForm.name);
+      formData.append("price", prodForm.price);
+      if (prodForm.discountPrice) {
+        formData.append("discountPrice", prodForm.discountPrice);
+      }
+      formData.append("category", prodForm.category);
+      formData.append("brand", prodForm.brand);
+      formData.append("description", prodForm.description);
+      formData.append("stock", prodForm.stock);
+      formData.append("isNewArrival", prodForm.isNewArrival.toString());
+
+      const existingUrls: string[] = [];
+      selectedImages.forEach(img => {
+        if (img.type === "existing" && img.url) {
+          existingUrls.push(img.url);
+        } else if (img.type === "new" && img.file) {
+          formData.append("images", img.file);
+        }
+      });
+      formData.append("existingImages", JSON.stringify(existingUrls));
 
       const url = isEditMode
         ? `${backendUrl}/products/${editingProductId}`
@@ -177,10 +271,9 @@ const AdminDashboard: React.FC = () => {
       const res = await fetch(url, {
         method,
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(payload)
+        body: formData
       });
 
       if (res.ok) {
@@ -189,7 +282,8 @@ const AdminDashboard: React.FC = () => {
         fetchProducts();
         fetchStats(); // Update stats
       } else {
-        showToast("Failed to save product details.", "error");
+        const errorData = await res.json();
+        showToast(errorData.message || "Failed to save product details.", "error");
       }
     } catch (err) {
       showToast("Error connecting to server.", "error");
@@ -642,15 +736,101 @@ const AdminDashboard: React.FC = () => {
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Product Image URL *</label>
-                <input
-                  type="url"
-                  required
-                  placeholder="https://images.unsplash.com/..."
-                  value={prodForm.imageUrl}
-                  onChange={(e) => setProdForm({ ...prodForm, imageUrl: e.target.value })}
-                  className="form-input"
-                />
+                <label className="form-label">Product Images (Max 5) *</label>
+                
+                {/* Drag & Drop Area */}
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    border: `2px dashed ${isDragOver ? "var(--accent-primary)" : "var(--border-color)"}`,
+                    backgroundColor: isDragOver ? "rgba(59, 130, 246, 0.05)" : "var(--bg-tertiary)",
+                    borderRadius: "var(--border-radius)",
+                    padding: "24px 20px",
+                    textAlign: "center",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    position: "relative"
+                  }}
+                >
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    multiple
+                    accept=".jpg,.jpeg,.png,.webp"
+                    style={{ display: "none" }}
+                  />
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                    <Upload size={28} style={{ color: isDragOver ? "var(--accent-primary)" : "var(--text-secondary)" }} />
+                    <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                      Upload product images or drag and drop here
+                    </span>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-tertiary)" }}>
+                      PNG, JPG, JPEG, WEBP (max 5MB each)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Previews */}
+                {selectedImages.length > 0 && (
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "12px" }}>
+                    {selectedImages.map((img, idx) => {
+                      const src = img.type === "existing" ? img.url : img.previewUrl;
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            position: "relative",
+                            width: "64px",
+                            height: "64px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--border-color)",
+                            backgroundColor: "#fff",
+                            overflow: "hidden",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center"
+                          }}
+                        >
+                          <img
+                            src={src}
+                            alt="preview"
+                            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveImage(idx);
+                            }}
+                            style={{
+                              position: "absolute",
+                              top: "2px",
+                              right: "2px",
+                              width: "18px",
+                              height: "18px",
+                              borderRadius: "50%",
+                              backgroundColor: "rgba(239, 68, 68, 0.9)",
+                              color: "#fff",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: "pointer",
+                              fontSize: "0.8rem",
+                              lineHeight: 1,
+                              border: "none"
+                            }}
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>

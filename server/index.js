@@ -10,7 +10,13 @@ import cartRoutes from "./routes/cart.js";
 import orderRoutes from "./routes/orders.js";
 import adminRoutes from "./routes/admin.js";
 
+import path from "path";
+import { fileURLToPath } from "url";
+
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -21,6 +27,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Database Connection
 mongoose

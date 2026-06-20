@@ -99,19 +99,35 @@ export const getProductById = async (req, res, next) => {
 // @desc    Create a product (Admin only)
 // @route   POST /api/products
 export const createProduct = async (req, res, next) => {
-  const { name, price, discountPrice, category, brand, images, description, stock, isNewArrival } = req.body;
-
   try {
+    const { name, price, discountPrice, category, brand, description, stock, isNewArrival } = req.body;
+
+    let existing = [];
+    if (req.body.existingImages) {
+      try {
+        existing = typeof req.body.existingImages === "string"
+          ? JSON.parse(req.body.existingImages)
+          : req.body.existingImages;
+      } catch (e) {
+        existing = Array.isArray(req.body.existingImages) ? req.body.existingImages : [req.body.existingImages];
+      }
+    }
+    const images = [...existing, ...(req.uploadedImageUrls || [])];
+
+    if (images.length === 0) {
+      return res.status(400).json({ message: "At least one product image is required." });
+    }
+
     const product = await Product.create({
       name,
-      price,
-      discountPrice,
+      price: Number(price),
+      discountPrice: discountPrice ? Number(discountPrice) : undefined,
       category,
       brand,
       images,
       description,
-      stock,
-      isNewArrival
+      stock: Number(stock),
+      isNewArrival: isNewArrival === "true" || isNewArrival === true
     });
     res.status(201).json(product);
   } catch (error) {
@@ -128,10 +144,42 @@ export const updateProduct = async (req, res, next) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    const updatedProduct = await Product.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true
-    });
+    const { name, price, discountPrice, category, brand, description, stock, isNewArrival } = req.body;
+
+    let existing = [];
+    if (req.body.existingImages) {
+      try {
+        existing = typeof req.body.existingImages === "string"
+          ? JSON.parse(req.body.existingImages)
+          : req.body.existingImages;
+      } catch (e) {
+        existing = Array.isArray(req.body.existingImages) ? req.body.existingImages : [req.body.existingImages];
+      }
+    }
+    const images = [...existing, ...(req.uploadedImageUrls || [])];
+
+    if (images.length === 0) {
+      return res.status(400).json({ message: "At least one product image is required." });
+    }
+
+    const updatedProduct = await Product.findByIdAndUpdate(
+      req.params.id,
+      {
+        name,
+        price: Number(price),
+        discountPrice: discountPrice ? Number(discountPrice) : undefined,
+        category,
+        brand,
+        images,
+        description,
+        stock: Number(stock),
+        isNewArrival: isNewArrival === "true" || isNewArrival === true
+      },
+      {
+        new: true,
+        runValidators: true
+      }
+    );
 
     res.json(updatedProduct);
   } catch (error) {

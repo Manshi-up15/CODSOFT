@@ -9,16 +9,17 @@ import {
   getProductReviews
 } from "../controllers/productController.js";
 import { protect, adminOnly } from "../middleware/auth.js";
+import { handleImageUpload } from "../middleware/upload.js";
 
 const router = express.Router();
 
 router.route("/")
   .get(getProducts)
-  .post(protect, adminOnly, createProduct);
+  .post(protect, adminOnly, handleImageUpload, createProduct);
 
 router.route("/:id")
   .get(getProductById)
-  .put(protect, adminOnly, updateProduct)
+  .put(protect, adminOnly, handleImageUpload, updateProduct)
   .delete(protect, adminOnly, deleteProduct);
 
 router.route("/:id/reviews")
