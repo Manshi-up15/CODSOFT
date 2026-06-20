@@ -113,3 +113,54 @@ export const handleImageUpload = (req, res, next) => {
     }
   });
 };
+
+export const handleCategoryImageUpload = (req, res, next) => {
+  uploadMiddleware(req, res, async (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ message: "File too large. Maximum size allowed is 5MB." });
+        }
+        return res.status(400).json({ message: `Upload error: ${err.message}` });
+      }
+      return res.status(400).json({ message: err.message });
+    }
+
+    try {
+      const files = req.files || [];
+      const imageFile = files.find((f) => f.fieldname === "image");
+
+      if (imageFile) {
+        if (isCloudinaryConfigured) {
+          const uploadPromise = new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+              { folder: "shopsphere_categories" },
+              (error, result) => {
+                if (error) reject(error);
+                else resolve(result.secure_url);
+              }
+            );
+            stream.write(imageFile.buffer);
+            stream.end();
+          });
+          req.uploadedCategoryImageUrl = await uploadPromise;
+        } else {
+          const uploadsDir = path.join(__dirname, "../uploads");
+          if (!fs.existsSync(uploadsDir)) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+          }
+
+          const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(imageFile.originalname)}`;
+          const filePath = path.join(uploadsDir, filename);
+          fs.writeFileSync(filePath, imageFile.buffer);
+
+          req.uploadedCategoryImageUrl = `${req.protocol}://${req.get("host")}/uploads/${filename}`;
+        }
+      }
+      next();
+    } catch (uploadError) {
+      console.error("Category image upload processing error:", uploadError);
+      return res.status(500).json({ message: "Failed to process and store category image." });
+    }
+  });
+};

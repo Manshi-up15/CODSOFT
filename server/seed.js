@@ -5,6 +5,7 @@ import Product from "./models/Product.js";
 import Cart from "./models/Cart.js";
 import Review from "./models/Review.js";
 import Order from "./models/Order.js";
+import Category from "./models/Category.js";
 
 dotenv.config();
 
@@ -145,7 +146,21 @@ const seedDB = async () => {
     await Cart.deleteMany({});
     await Review.deleteMany({});
     await Order.deleteMany({});
+    await Category.deleteMany({});
     console.log("Database cleared.");
+
+    // Seed default categories
+    const categoriesData = [
+      { name: "Headphones", description: "Over-ear, on-ear headphones and headsets", image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=80" },
+      { name: "Earbuds", description: "True wireless in-ear earbuds and accessories", image: "https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&auto=format&fit=crop&q=80" },
+      { name: "Wearables", description: "Smartwatches, fitness bands, and trackers", image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80" },
+      { name: "Accessories", description: "Chargers, docking stations, and audio adapters", image: "https://images.unsplash.com/photo-1622445262465-2481c4574875?w=800&auto=format&fit=crop&q=80" },
+      { name: "Speakers", description: "Smart home assistants and portable wireless speakers", image: "https://images.unsplash.com/photo-1589003077984-894e133dabab?w=800&auto=format&fit=crop&q=80" },
+      { name: "Tablets", description: "Tablets and interactive drawing pads", image: "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=800&auto=format&fit=crop&q=80" },
+      { name: "Cameras", description: "Professional DSLRs, action cams, and lenses", image: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=800&auto=format&fit=crop&q=80" }
+    ];
+    await Category.insertMany(categoriesData);
+    console.log("Categories seeded.");
 
     // Create Admin
     const admin = new User({

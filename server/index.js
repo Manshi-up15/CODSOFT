@@ -9,6 +9,7 @@ import productRoutes from "./routes/products.js";
 import cartRoutes from "./routes/cart.js";
 import orderRoutes from "./routes/orders.js";
 import adminRoutes from "./routes/admin.js";
+import categoryRoutes from "./routes/categories.js";
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -41,6 +42,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/categories", categoryRoutes);
 
 // Test Route
 app.get("/", (req, res) => {

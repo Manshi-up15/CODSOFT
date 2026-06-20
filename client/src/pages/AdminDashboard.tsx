@@ -41,10 +41,11 @@ const AdminDashboard: React.FC = () => {
     return <Navigate to="/" replace />;
   }
 
-  const [activeSubTab, setActiveSubTab] = useState<"overview" | "products" | "orders">("overview");
+  const [activeSubTab, setActiveSubTab] = useState<"overview" | "products" | "orders" | "categories">("overview");
   const [stats, setStats] = useState<Stats | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Dialog / Modal Form States
@@ -55,6 +56,25 @@ const AdminDashboard: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Category Form States
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [isCategoryEditMode, setIsCategoryEditMode] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  
+  const [catForm, setCatForm] = useState({
+    name: "",
+    description: ""
+  });
+  const [catImageFile, setCatImageFile] = useState<File | null>(null);
+  const [catImagePreview, setCatImagePreview] = useState<string>("");
+  const catFileInputRef = useRef<HTMLInputElement>(null);
+  const [submittingCategory, setSubmittingCategory] = useState(false);
+
+  // Custom Delete Category Confirmation States
+  const [showDeleteCatModal, setShowDeleteCatModal] = useState(false);
+  const [deletingCategory, setDeletingCategory] = useState<any | null>(null);
+  const [isDeletingCat, setIsDeletingCat] = useState(false);
 
   const [prodForm, setProdForm] = useState({
     name: "",
@@ -189,10 +209,21 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch(`${backendUrl}/categories`);
+      if (res.ok) {
+        setCategories(await res.json());
+      }
+    } catch (err) {
+      console.error("Error loading categories:", err);
+    }
+  };
+
   useEffect(() => {
     const loadAdminData = async () => {
       setLoading(true);
-      await Promise.all([fetchStats(), fetchProducts(), fetchOrders()]);
+      await Promise.all([fetchStats(), fetchProducts(), fetchOrders(), fetchCategories()]);
       setLoading(false);
     };
     loadAdminData();
@@ -205,7 +236,7 @@ const AdminDashboard: React.FC = () => {
       name: "",
       price: "",
       discountPrice: "",
-      category: "Headphones",
+      category: categories[0]?.name || "Headphones",
       brand: "",
       imageUrl: "",
       description: "",
@@ -350,6 +381,132 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleOpenAddCategory = () => {
+    setIsCategoryEditMode(false);
+    setEditingCategoryId(null);
+    setCatForm({
+      name: "",
+      description: ""
+    });
+    setCatImageFile(null);
+    setCatImagePreview("");
+    setShowCategoryModal(true);
+  };
+
+  const handleOpenEditCategory = (cat: any) => {
+    setIsCategoryEditMode(true);
+    setEditingCategoryId(cat._id);
+    setCatForm({
+      name: cat.name,
+      description: cat.description || ""
+    });
+    setCatImageFile(null);
+    setCatImagePreview(cat.image || "");
+    setShowCategoryModal(true);
+  };
+
+  const handleCatImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/jpg", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      showToast("Unsupported file type. Please upload PNG, JPG, JPEG, or WEBP.", "error");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast("File too large. Maximum size allowed is 5MB.", "error");
+      return;
+    }
+
+    setCatImageFile(file);
+    setCatImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleCategorySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!catForm.name) {
+      showToast("Category name is required", "error");
+      return;
+    }
+
+    setSubmittingCategory(true);
+    try {
+      const formData = new FormData();
+      formData.append("name", catForm.name);
+      formData.append("description", catForm.description);
+      if (catImageFile) {
+        formData.append("image", catImageFile);
+      }
+
+      const url = isCategoryEditMode
+        ? `${backendUrl}/categories/${editingCategoryId}`
+        : `${backendUrl}/categories`;
+
+      const method = isCategoryEditMode ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(
+          isCategoryEditMode ? "Category updated successfully!" : "Category created successfully!",
+          "success"
+        );
+        setShowCategoryModal(false);
+        fetchCategories();
+        fetchProducts(); // Refresh products
+      } else {
+        showToast(data.message || "Failed to save category.", "error");
+      }
+    } catch (err) {
+      showToast("Error connecting to server.", "error");
+    } finally {
+      setSubmittingCategory(false);
+    }
+  };
+
+  const handleOpenDeleteCategory = (cat: any) => {
+    if (cat.productCount > 0) {
+      showToast("Cannot delete category containing products.", "error");
+      return;
+    }
+    setDeletingCategory(cat);
+    setShowDeleteCatModal(true);
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!deletingCategory || isDeletingCat) return;
+
+    setIsDeletingCat(true);
+    try {
+      const res = await fetch(`${backendUrl}/categories/${deletingCategory._id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast("Category deleted successfully.", "info");
+        setCategories(prev => prev.filter(c => c._id !== deletingCategory._id));
+        setShowDeleteCatModal(false);
+        setDeletingCategory(null);
+      } else {
+        showToast(data.message || "Failed to delete category.", "error");
+      }
+    } catch (err) {
+      showToast("Error deleting category.", "error");
+    } finally {
+      setIsDeletingCat(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ textAlign: "center", padding: "100px 0", color: "var(--text-secondary)" }}>
@@ -417,6 +574,20 @@ const AdminDashboard: React.FC = () => {
             }}
           >
             Orders Logistics
+          </button>
+          <button
+            onClick={() => setActiveSubTab("categories")}
+            style={{
+              padding: "8px 16px",
+              borderRadius: "6px",
+              fontSize: "0.9rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              backgroundColor: activeSubTab === "categories" ? "var(--bg-tertiary)" : "transparent",
+              color: activeSubTab === "categories" ? "#fff" : "var(--text-secondary)"
+            }}
+          >
+            Categories
           </button>
         </div>
       </div>
@@ -655,6 +826,70 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* SUBTAB 4: Categories Management */}
+      {activeSubTab === "categories" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+            <h3 style={{ fontSize: "1.2rem", fontWeight: 700 }}>Manage Categories</h3>
+            <button onClick={handleOpenAddCategory} className="btn btn-primary" style={{ padding: "10px 20px", fontSize: "0.85rem" }}>
+              <Plus size={16} /> Add Category
+            </button>
+          </div>
+
+          <div className="glass" style={{ borderRadius: "14px", padding: "20px", overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.95rem" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border-color)", color: "var(--text-secondary)" }}>
+                  <th style={{ padding: "12px 10px" }}>Image</th>
+                  <th style={{ padding: "12px 10px" }}>Category Name</th>
+                  <th style={{ padding: "12px 10px" }}>Description</th>
+                  <th style={{ padding: "12px 10px" }}>Number of Products</th>
+                  <th style={{ padding: "12px 10px" }}>Created Date</th>
+                  <th style={{ padding: "12px 10px", textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categories.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: "20px", textAlign: "center", color: "var(--text-secondary)" }}>
+                      No categories created yet.
+                    </td>
+                  </tr>
+                ) : (
+                  categories.map((cat) => (
+                    <tr key={cat._id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                      <td style={{ padding: "12px 10px" }}>
+                        {cat.image ? (
+                          <img src={cat.image} alt={cat.name} style={{ width: "40px", height: "40px", borderRadius: "6px", backgroundColor: "#fff", objectFit: "contain", padding: "2px" }} />
+                        ) : (
+                          <span style={{ fontSize: "0.8rem", color: "var(--text-tertiary)" }}>No Image</span>
+                        )}
+                      </td>
+                      <td style={{ padding: "12px 10px", fontWeight: 700 }}>{cat.name}</td>
+                      <td style={{ padding: "12px 10px", color: "var(--text-secondary)", maxWidth: "250px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {cat.description || "-"}
+                      </td>
+                      <td style={{ padding: "12px 10px", fontWeight: 600 }}>{cat.productCount} products</td>
+                      <td style={{ padding: "12px 10px" }}>{new Date(cat.createdAt).toLocaleDateString()}</td>
+                      <td style={{ padding: "12px 10px", textAlign: "right" }}>
+                        <div style={{ display: "inline-flex", gap: "8px" }}>
+                          <button onClick={() => handleOpenEditCategory(cat)} className="btn-icon" style={{ width: "32px", height: "32px" }}>
+                            <Edit size={14} />
+                          </button>
+                          <button onClick={() => handleOpenDeleteCategory(cat)} className="btn-icon" style={{ width: "32px", height: "32px", color: "var(--accent-danger)" }}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Product Add/Edit Modal Overlay */}
       {showProductModal && (
         <div style={{
@@ -729,13 +964,15 @@ const AdminDashboard: React.FC = () => {
                     onChange={(e) => setProdForm({ ...prodForm, category: e.target.value })}
                     className="form-select"
                   >
-                    <option value="Headphones">Headphones</option>
-                    <option value="Earbuds">Earbuds</option>
-                    <option value="Wearables">Wearables</option>
-                    <option value="Speakers">Speakers</option>
-                    <option value="Tablets">Tablets</option>
-                    <option value="Cameras">Cameras</option>
-                    <option value="Accessories">Accessories</option>
+                    {categories.length === 0 ? (
+                      <option value="">No categories defined yet</option>
+                    ) : (
+                      categories.map((cat) => (
+                        <option key={cat._id} value={cat.name}>
+                          {cat.name}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
@@ -952,6 +1189,167 @@ const AdminDashboard: React.FC = () => {
                 style={{ flex: 1 }}
               >
                 {isDeleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Category Add/Edit Modal Overlay */}
+      {showCategoryModal && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          backgroundColor: "rgba(0,0,0,0.6)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 200,
+          padding: "20px"
+        }} onClick={() => setShowCategoryModal(false)}>
+          <div className="glass" style={{
+            maxWidth: "500px",
+            width: "100%",
+            borderRadius: "var(--border-radius-lg)",
+            padding: "32px",
+            maxHeight: "90vh",
+            overflowY: "auto"
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: "20px" }}>
+              {isCategoryEditMode ? "Modify Category Details" : "Create New Product Category"}
+            </h3>
+
+            <form onSubmit={handleCategorySubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Category Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Electronics..."
+                  value={catForm.name}
+                  onChange={(e) => setCatForm({ ...catForm, name: e.target.value })}
+                  className="form-input"
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Description (Optional)</label>
+                <textarea
+                  rows={3}
+                  placeholder="Short description of items in this category..."
+                  value={catForm.description}
+                  onChange={(e) => setCatForm({ ...catForm, description: e.target.value })}
+                  className="form-input"
+                  style={{ resize: "none" }}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Category Image (Optional)</label>
+                <div
+                  onClick={() => catFileInputRef.current?.click()}
+                  style={{
+                    border: "2px dashed var(--border-color)",
+                    backgroundColor: "var(--bg-tertiary)",
+                    borderRadius: "var(--border-radius)",
+                    padding: "20px",
+                    textAlign: "center",
+                    cursor: "pointer",
+                    position: "relative"
+                  }}
+                >
+                  <input
+                    type="file"
+                    ref={catFileInputRef}
+                    onChange={handleCatImageChange}
+                    accept=".jpg,.jpeg,.png,.webp"
+                    style={{ display: "none" }}
+                  />
+                  {catImagePreview ? (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                      <img src={catImagePreview} alt="Preview" style={{ height: "80px", borderRadius: "6px", objectFit: "contain" }} />
+                      <span style={{ fontSize: "0.8rem", color: "var(--accent-primary)", fontWeight: 600 }}>Click to replace image</span>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                      <Upload size={24} style={{ color: "var(--text-secondary)" }} />
+                      <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Upload image or click here</span>
+                      <span style={{ fontSize: "0.75rem", color: "var(--text-tertiary)" }}>PNG, JPG, JPEG, WEBP (max 5MB)</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end", marginTop: "16px" }}>
+                <button type="button" onClick={() => setShowCategoryModal(false)} className="btn btn-secondary">
+                  Cancel
+                </button>
+                <button type="submit" disabled={submittingCategory} className="btn btn-primary" style={{ padding: "0 24px" }}>
+                  {submittingCategory ? "Saving..." : "Save Category"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Category Confirmation Modal Overlay */}
+      {showDeleteCatModal && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          backgroundColor: "rgba(0,0,0,0.6)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 250,
+          padding: "20px"
+        }} onClick={() => {
+          if (!isDeletingCat) {
+            setShowDeleteCatModal(false);
+            setDeletingCategory(null);
+          }
+        }}>
+          <div className="glass" style={{
+            maxWidth: "400px",
+            width: "100%",
+            borderRadius: "var(--border-radius-lg)",
+            padding: "28px",
+            textAlign: "center"
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: "12px" }}>
+              Delete Category?
+            </h3>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem", marginBottom: "24px" }}>
+              Are you sure you want to delete this category?
+            </p>
+            <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={isDeletingCat}
+                onClick={() => {
+                  setShowDeleteCatModal(false);
+                  setDeletingCategory(null);
+                }}
+                style={{ flex: 1 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={isDeletingCat}
+                onClick={confirmDeleteCategory}
+                style={{ flex: 1 }}
+              >
+                {isDeletingCat ? "Deleting..." : "Delete"}
               </button>
             </div>
           </div>
