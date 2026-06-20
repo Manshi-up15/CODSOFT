@@ -1,5 +1,26 @@
 import Product from "../models/Product.js";
 import Review from "../models/Review.js";
+import { v2 as cloudinary } from "cloudinary";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Configure Cloudinary if credentials exist
+const isCloudinaryConfigured =
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET;
+
+if (isCloudinaryConfigured) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+}
 
 // @desc    Get all products with filters, sorting, searching & pagination
 // @route   GET /api/products
@@ -193,11 +214,47 @@ export const deleteProduct = async (req, res, next) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) {
-      return res.status(404).json({ message: "Product not found" });
+      return res.status(404).json({ success: false, message: "Product not found" });
     }
 
+    // 1. Delete associated images from storage (Cloudinary & Local uploads)
+    if (product.images && product.images.length > 0) {
+      for (const url of product.images) {
+        if (url.includes("/uploads/")) {
+          // Local storage cleanup
+          const filename = url.substring(url.lastIndexOf("/") + 1);
+          const filePath = path.join(__dirname, "../uploads", filename);
+          if (fs.existsSync(filePath)) {
+            try {
+              fs.unlinkSync(filePath);
+            } catch (err) {
+              console.error(`Failed to delete local file ${filePath}:`, err);
+            }
+          }
+        } else if (isCloudinaryConfigured && url.includes("cloudinary.com")) {
+          // Cloudinary storage cleanup
+          try {
+            const parts = url.split("/upload/");
+            if (parts.length >= 2) {
+              let publicIdWithExtension = parts[1];
+              publicIdWithExtension = publicIdWithExtension.replace(/^v\d+\//, "");
+              const extensionIndex = publicIdWithExtension.lastIndexOf(".");
+              const publicId = extensionIndex !== -1 
+                ? publicIdWithExtension.substring(0, extensionIndex) 
+                : publicIdWithExtension;
+              
+              await cloudinary.uploader.destroy(publicId);
+            }
+          } catch (cloudinaryErr) {
+            console.error("Cloudinary file deletion failed:", cloudinaryErr);
+          }
+        }
+      }
+    }
+
+    // 2. Delete product from database
     await Product.findByIdAndDelete(req.params.id);
-    res.json({ message: "Product deleted successfully" });
+    res.json({ success: true, message: "Product deleted successfully" });
   } catch (error) {
     next(error);
   }

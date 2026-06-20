@@ -51,6 +51,10 @@ const AdminDashboard: React.FC = () => {
   const [showProductModal, setShowProductModal] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [prodForm, setProdForm] = useState({
     name: "",
@@ -292,23 +296,35 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleDeleteProduct = async (productId: string) => {
-    if (!window.confirm("Are you sure you want to delete this product? This action is irreversible.")) return;
+  const handleDeleteProduct = (productId: string) => {
+    setDeletingProductId(productId);
+    setShowDeleteModal(true);
+  };
 
+  const confirmDeleteProduct = async () => {
+    if (!deletingProductId || isDeleting) return;
+
+    setIsDeleting(true);
     try {
-      const res = await fetch(`${backendUrl}/products/${productId}`, {
+      const res = await fetch(`${backendUrl}/products/${deletingProductId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (res.ok && data.success) {
         showToast("Product deleted successfully.", "info");
-        fetchProducts();
-        fetchStats(); // Update stats
+        // Optimistic UI state update: remove the deleted product from state immediately
+        setProducts(prev => prev.filter(p => p._id !== deletingProductId));
+        setShowDeleteModal(false);
+        setDeletingProductId(null);
+        fetchStats(); // Update stats in background
       } else {
-        showToast("Failed to delete product.", "error");
+        showToast(data.message || "Failed to delete product.", "error");
       }
     } catch (err) {
       showToast("Error deleting product.", "error");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -878,6 +894,66 @@ const AdminDashboard: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal Overlay */}
+      {showDeleteModal && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          backgroundColor: "rgba(0,0,0,0.6)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 250,
+          padding: "20px"
+        }} onClick={() => {
+          if (!isDeleting) {
+            setShowDeleteModal(false);
+            setDeletingProductId(null);
+          }
+        }}>
+          <div className="glass" style={{
+            maxWidth: "400px",
+            width: "100%",
+            borderRadius: "var(--border-radius-lg)",
+            padding: "28px",
+            textAlign: "center"
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: "12px" }}>
+              Delete Product?
+            </h3>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem", marginBottom: "24px" }}>
+              Are you sure you want to permanently delete this product?
+            </p>
+            <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={isDeleting}
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeletingProductId(null);
+                }}
+                style={{ flex: 1 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={isDeleting}
+                onClick={confirmDeleteProduct}
+                style={{ flex: 1 }}
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
           </div>
         </div>
       )}
